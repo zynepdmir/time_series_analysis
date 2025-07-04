@@ -1,0 +1,272 @@
+---
+title: "Time Series Analysis for Unemployment Rate in USA"
+author: "Zeynep Demir"
+date: "2024-12-08"
+output: rmdformats::readthedown
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+## Time Series Plot and Interpretation 
+We will analyze a monthly dataset, Unemployment Rate in the USA, between 1980 January and 2024 November.
+
+```{r}
+library(ggplot2)
+library(forecast)
+unrate_data <- read.csv("C:/Users/zynep/Downloads/UNRATE.csv")
+unrate <- ts(unrate_data[, 2], start = c(1948, 1), frequency = 12)
+unrate_subset <- window(unrate, start = 1980)
+autoplot(unrate_subset)
+```
+
+Time series plot shows that;  
+- The series does not have an upward or downward trend in the long term, but there is a cyclical pattern over time, where unemployment rate rises and falls consistently.  
+- The significant spike around 2020 implies an outlier which could be related to the COVID-19 Pandemic.  
+- There is no seasonality observed in this plot.
+
+
+## Cross-Validation
+The last 12 observations (test_set) are kept out of the analysis. We will use them later to measure the forecast accuracy of the models. 
+
+```{r}
+train_set <- window(unrate_subset, end = c(2023,11))
+test_set <- window(unrate_subset, start = c(2023,12))
+```
+
+
+## Anomaly Detection and Cleaning
+
+Detecting and cleaning the anomalies
+```{r}
+library(tibble)
+library(gridExtra)
+library(forecast)
+train_set_cleaned <- tsclean(train_set)
+p1 <- autoplot(train_set, main= "Before Cleaning Anomalies", y="unrate")+theme_bw()
+p2 <- autoplot(train_set_cleaned, main="After Cleaning Anomalies", y="unrate")+theme_bw()
+grid.arrange(p1,p2,nrow=2)
+```
+The sharp increase in 2020 is now replaced with a smoother pattern.
+
+## Box-Cox Transformation Analysis
+The series may need transformation.
+```{r}
+BoxCox.lambda(train_set_cleaned)
+```
+Box-Cox lambda is close to 0, then we will apply log transformation.
+
+
+```{r}
+train_set_cleaned_transformed <- log(train_set_cleaned)
+BoxCox.lambda(train_set_cleaned_transformed)
+```
+After the log transformation the Box-Cox lambda is approximately 1, which implies the transformation worked.
+
+
+## Unit Root Tests
+Now that the series is cleaned and transformed, unit root tests can be applied.
+
+```{r}
+p1 <- ggAcf(train_set_cleaned_transformed, main="ACF of UNRATE")+theme_bw()
+p2 <- ggPacf(train_set_cleaned_transformed, main="PACF of UNRATE")+theme_bw()
+grid.arrange(p1,p2,nrow=1)
+```
+The slow linear decay in acf plot implies non-stationarity.
+
+KPSS test for the level  
+H0: the series is stationary.  
+H1: the series is not stationary.  
+```{r}
+library(tseries)
+kpss.test(train_set_cleaned_transformed, null="Level")
+```
+
+p-value = 0.01 then we reject H0 at 0.05 significance level, the series is not stationary. 
+
+We can apply few more unit root tests to see if the results are coherent.
+
+
+Hypotheses of ADF test for the unit root:  
+H0: the series have unit root  
+H1: the series do not have unit root  
+
+```{r}
+mean(train_set_cleaned_transformed)
+```
+The mean of the process is not zero, then we will use "nc" argument.
+
+
+```{r}
+library(fUnitRoots)
+adfTest(train_set_cleaned_transformed, type="nc")
+```
+
+
+Since p-value = 0.3411, we fail to reject H0 and then conclude that the series have unit root.
+
+Then we can test which type of trend the series may have.
+
+KPSS test for the trend:  
+H0: the series has deterministic trend  
+H1: the series has stochastic trend  
+
+```{r}
+library(tseries)
+kpss.test(train_set_cleaned_transformed, null = "Trend")
+```
+
+
+p-value = 0.01 then we reject the null hypothesis again and conclude the series has a stochastic trend.
+
+
+Hypothesis of ADF test for the trend:  
+H0: the series have stochastic trend  
+H1: the series have deterministic trend  
+
+```{r}
+adfTest(train_set_cleaned_transformed, lags = 1, type="ct")
+```
+
+
+Since p-value = 0.8564 is greater than 0.05, we fail to reject H0 and confirm that the series have a stochastic trend.
+
+Let's check seasonal unit roots, too.
+
+HEGY test  
+H0: the series has unit root  
+H1: the series do not have unit root  
+
+```{r}
+library(pdR)
+test_hegy <- HEGY.test(train_set_cleaned_transformed, itsd=c(1,1,0),regvar=0, selectlags=list(mode="aic", Pmax=12))
+test_hegy$stats
+```
+p-value for tp1 is to test the regular unit root and is greater than 0.05, then we fail to reject H0, the series have unit root (coherent with kpss and adf tests).
+
+p-value for Fpi_11:12 tests the seasonal unit root in the series. Since that p-value is smaller than 0.05, we reject H0. The series do not have seasonal unit root.
+
+## Removing the Trend
+The series have regular unit root and the trend type is stochastic, then we need to apply differencing to the series. Seasonal differencing is not necessary.
+```{r}
+ndiffs(train_set_cleaned_transformed)
+```
+Only 1 differencing should be enough to have a stationary series.
+
+
+```{r}
+dif_train_set_cleaned_transformed <- diff(train_set_cleaned_transformed)
+kpss.test(dif_train_set_cleaned_transformed, null = "Level")
+```
+We fail to reject H0, after one differencing the series is stationary.
+
+```{r}
+adf.test(dif_train_set_cleaned_transformed)
+```
+ADF test also confirms stationarity.
+
+
+```{r}
+test_hegy <- HEGY.test(dif_train_set_cleaned_transformed, itsd=c(1,0,0),regvar=0, selectlags=list(mode="aic", Pmax=12))
+test_hegy$stats
+```
+Furthermore, HEGY test results also conclude that the differenced series have neither regular unit root nor seasonal unit root.
+
+## Checking the Plots 
+
+```{r}
+autoplot(dif_train_set_cleaned_transformed)
+```
+This plot shows that the differenced series is stationary in mean around zero and the variance is stable. Also, there is no seasonality.
+
+
+```{r}
+p1 <- ggAcf(dif_train_set_cleaned_transformed, main="ACF of Diff'd Series") + theme_bw()
+p2 <- ggPacf(dif_train_set_cleaned_transformed, main="PACF of Diff'd Series") + theme_bw()
+grid.arrange(p1,p2,nrow=1)
+```
+
+```{r}
+library(TSA)
+eacf(train_set_cleaned_transformed)
+```
+
+## Model Identification
+The series appears to be stationary after one regular differencing. Since we didn't apply any seasonal differencing, we can suggest ARIMA(p,1,q) models. The model candidates are; ARIMA(1,1,1), ARIMA(2,1,1), ARIMA(3,1,1), ARIMA(1,1,2), ARIMA(2,1,2), ARIMA(3,1,2), ARIMA(1,1,3), ARIMA(2,1,3) and ARIMA(3,1,3)
+
+## Parameter Estimation
+Then we can estimate the parameters using conditional-sum-of-squares to find starting values, then maximum likelihood. 
+
+```{r}
+fit1 <- Arima(train_set, order = c(1, 1, 1), method="CSS-ML") 
+fit1
+```
+These two parameters are significant since |-0.2423/0.0503|=4.817097 and |-0.7585/0.0339|=22.37463 are greater than 1.96. Let's keep this model.
+
+```{r}
+fit2 <- Arima(dif_train_set_cleaned_transformed, order = c(2, 1, 1), method="CSS-ML") 
+fit2
+```
+The parameters for ARIMA(2,1,1) are also significant. We keep this model, too.
+
+
+```{r}
+fit3 <- Arima(dif_train_set_cleaned_transformed, order = c(3, 1, 1), method="CSS-ML") 
+fit3
+```
+ar3 parameter for ARIMA(3,1,1) is not significant, eliminating this model. 
+
+```{r}
+fit4 <- Arima(dif_train_set_cleaned_transformed, order = c(1, 1, 2), method="CSS-ML") 
+fit4
+```
+ar2 parameter is not significant, eliminating this model.
+
+```{r}
+fit5 <- Arima(dif_train_set_cleaned_transformed, order = c(2, 1, 2), method="CSS-ML") 
+fit5
+```
+ma2 parameter is not significant, eliminating this model.
+
+```{r}
+fit6 <- Arima(dif_train_set_cleaned_transformed, order = c(3, 1, 2), method="CSS-ML") 
+fit6
+```
+There is a convergence problem when estimation for ARIMA(3,1,2), therefore we will use only conditional-sum-of-squares method for this fit.
+
+```{r}
+fit6 <- Arima(dif_train_set_cleaned_transformed, order = c(3, 1, 2), method="CSS")
+fit6
+```
+The convergence problem is solved. Also, both ar3 and ma2 paramteters are significant, we keep this model.
+
+```{r}
+fit7 <- Arima(dif_train_set_cleaned_transformed, order = c(1, 1, 3), method="CSS-ML") 
+fit7
+```
+ar1 parameter is not significant, eliminating this model.
+
+
+```{r}
+fit8 <- Arima(dif_train_set_cleaned_transformed, order = c(2, 1, 3), method="CSS-ML") 
+fit8
+```
+ar2 and ma2 parameters are not significant, we eliminate this model, too.
+
+```{r}
+fit9 <- Arima(dif_train_set_cleaned_transformed, order = c(3, 1, 3), method="CSS-ML")
+fit9
+```
+ar3 and ma3 parameters are not significant, therefore we also eliminate this model.
+
+
+After elimination process, the candidates are ARIMA(1,1,1), ARIMA(2,1,1) and ARIMA(3,1,2).
+Then we can compare these three models' aic, aicc and bic values.
+```{r}
+matrix(c(fit1$aic, fit2$aic, fit6$aic, fit1$aicc, fit2$aicc,
+         fit6$aicc, fit1$bic, fit2$bic, fit6$bic), nrow=3,
+       dimnames= list(c("fit1", "fit2", "fit6"), c("aic", "aicc","bic")))
+
+```
+The second model's information criteria are smaller, then the best model is ARIMA(2,1,1).
