@@ -4,7 +4,7 @@ library(forecast)
 unrate_data <- read.csv("C:/Users/zynep/Downloads/UNRATE.csv")
 unrate <- ts(unrate_data[, 2], start = c(1948, 1), frequency = 12)
 unrate_subset <- window(unrate, start = 1980)
-autoplot(unrate_subset, main="Unemployment Rate in USA", y="") + theme_bw()
+autoplot(unrate_subset, main="Unemployment Rate in USA", y = "") + theme_bw()
 
 #Time series plot shows that;
 #- The series does not have an upward or downward trend in the long term, but there is a cyclical pattern over
