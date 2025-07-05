@@ -182,15 +182,15 @@ This plot shows that the differenced series is stationary in mean around zero an
 
 
 ```{r}
-p1 <- ggAcf(dif_train_set_cleaned_transformed, main="ACF of Diff'd Series") + theme_bw()
-p2 <- ggPacf(dif_train_set_cleaned_transformed, main="PACF of Diff'd Series") + theme_bw()
+p1 <- ggAcf(dif_train_set_cleaned_transformed, lag.max=50) + 
+  ggtitle("ACF of Diff'd Series") + theme_bw()
+
+p2 <- ggPacf(dif_train_set_cleaned_transformed, lag.max=50) + 
+  ggtitle("PACF of Diff'd Series") + theme_bw()
+
 grid.arrange(p1,p2,nrow=1)
 ```
 
-```{r}
-library(TSA)
-eacf(train_set_cleaned_transformed)
-```
 
 ## Model Identification
 The series appears to be stationary after one regular differencing. Since we didn't apply any seasonal differencing, we can suggest ARIMA(p,1,q) models. The model candidates are; ARIMA(1,1,1), ARIMA(2,1,1), ARIMA(3,1,1), ARIMA(1,1,2), ARIMA(2,1,2), ARIMA(3,1,2), ARIMA(1,1,3), ARIMA(2,1,3) and ARIMA(3,1,3)
